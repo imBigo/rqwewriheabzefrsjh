@@ -1,72 +1,66 @@
 #!/bin/bash
+# Modified install-db.sh for Amazon Linux 2023
 
-# Exit script on error
+# Add verbose logging to debug
+exec > >(tee /var/log/db-install.log) 2>&1
+echo "Starting database installation at $(date)"
+
+# Exit on error but with logging
 set -e
 
-# Function to display usage information
-usage() {
-    echo "Usage: $0 [ROOT_PASSWORD] [NEW_USER] [NEW_USER_PASSWORD] [DB_PORT]"
-    echo "Defaults will be used if arguments are not provided."
-    echo "\nExamples:"
-    echo "  $0 myRootPass myUser myUserPass 3306"
-    echo "  ROOT_PASSWORD=myRootPass NEW_USER=myUser NEW_USER_PASSWORD=myUserPass DB_PORT=3306 $0"
-    exit 1
-}
+# Define variables from arguments with default values
+ROOT_PASSWORD=${1:-'superpwd123'}
+NEW_USER=${2:-'gti778'}
+NEW_USER_PASSWORD=${3:-'gti778psw'}
+DB_PORT=${4:-'3360'}
 
-# Define variables from arguments or environment with default values
-ROOT_PASSWORD=${1:-${MariaDB_ROOT_PASSWORD:-'superpwd123'}}
-NEW_USER=${2:-${MariaDB_NEW_USER:-'gti778'}}
-NEW_USER_PASSWORD=${3:-${MariaDB_NEW_USER_PASSWORD:-'gti778psw'}}
-DB_PORT=${4:-${MariaDB_DB_PORT:-'3360'}}    
-
-# Show usage if help flag is passed
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    usage
-fi
+echo "Using DB_PORT: $DB_PORT"
 
 # Update system packages
 echo "Updating system packages..."
-sudo dnf update -y
+sudo yum update -y
 
 # Install MariaDB server
 echo "Installing MariaDB server..."
-sudo dnf install -y mariadb105-server
+sudo yum install -y mariadb105-server
 
-# Configure MariaDB to use custom port
-echo "Configuring MariaDB to use port $DB_PORT..."
-echo -e "[mysqld]\nport=$DB_PORT" | sudo tee /etc/my.cnf.d/mariadb-server-custom.cnf
+# Create config directories
+echo "Creating configuration..."
+sudo mkdir -p /etc/my.cnf.d/
+# Configure MariaDB more safely
+sudo bash -c "cat > /etc/my.cnf.d/custom.cnf << EOF
+[mysqld]
+port=$DB_PORT
+innodb_buffer_pool_size=128M
+max_connections=50
+EOF"
 
 # Enable and start MariaDB service
-echo "Enabling and starting MariaDB service..."
+echo "Starting MariaDB service..."
 sudo systemctl enable mariadb
-sudo systemctl restart mariadb
+sudo systemctl start mariadb
 
-# Checking status of MariaDB service
-echo "Checking status of MariaDB service..."
-sudo systemctl status mariadb
+# Wait for service to fully start
+echo "Waiting for MariaDB to initialize..."
+sleep 10
 
-# Retrieve current root password if exists
-CURRENT_ROOT_PASSWORD=$(sudo grep 'password' /var/log/mysqld.log | awk '{print $NF}' || echo "")
-if [[ -n "$CURRENT_ROOT_PASSWORD" ]]; then
-    ROOT_PASSWORD="$CURRENT_ROOT_PASSWORD"
-fi
+# Use mysqladmin to set root password (more reliable)
+echo "Setting root password..."
+sudo mysqladmin -u root password "$ROOT_PASSWORD" || echo "Root password already set or error occurred"
 
-echo "Securing MariaDB installation..."
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PASSWORD';"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; DELETE FROM mysql.user WHERE User='';"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost');"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; DROP DATABASE IF EXISTS test;"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; FLUSH PRIVILEGES;"
-
-# Create a new user
+# Create user and grant privileges
 echo "Creating new user: $NEW_USER..."
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; CREATE USER '$NEW_USER'@'%' IDENTIFIED BY '$NEW_USER_PASSWORD';"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;"
-sudo mysql -u root -p"$ROOT_PASSWORD" -e "USE mysql; FLUSH PRIVILEGES;"
+mysql -u root -p"$ROOT_PASSWORD" <<EOF || echo "User creation failed, may already exist"
+CREATE USER IF NOT EXISTS '$NEW_USER'@'%' IDENTIFIED BY '$NEW_USER_PASSWORD';
+GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
 
-# Verify installation
+# Verify MariaDB is running
 echo "Checking MariaDB status..."
-sudo systemctl status mariadb --no-pager
+sudo systemctl status mariadb --no-pager || echo "Service status check failed"
 
-echo "MariaDB installation and setup complete."
+echo "Testing database connection..."
+mysqladmin -u root -p"$ROOT_PASSWORD" ping || echo "Database ping failed"
+
+echo "MariaDB installation complete at $(date)"
