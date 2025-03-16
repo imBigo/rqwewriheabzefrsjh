@@ -19,8 +19,8 @@
 						"default": "Configuration Installation"
 					},
 					"Parameters": [
-						"GitRepoURL",
-						"GitBranch",
+						"S3BucketName",
+						"S3KeyPrefix",
 						"DNSPrefix"
 					]
 				},
@@ -52,11 +52,11 @@
 				"EnvironmentType": {
 					"default": "Type d'environnement"
 				},
-				"GitRepoURL": {
-					"default": "URL du depôt Git"
+				"S3BucketName": {
+					"default": "Nom du bucket S3"
 				},
-				"GitBranch": {
-					"default": "Branche Git"
+				"S3KeyPrefix": {
+					"default": "Préfixe des objets S3"
 				},
 				"DNSPrefix": {
 					"default": "Prefixe DNS"
@@ -93,19 +93,18 @@
 			],
 			"ConstraintDescription": "Doit etre 'Prod' ou 'Test'"
 		},
-		"GitRepoURL": {
+		"S3BucketName": {
 			"Type": "String",
-			"Description": "URL du depôt Git contenant les scripts d'installation",
+			"Description": "Nom du bucket S3 contenant les scripts d'installation",
 			"MinLength": "3",
-			"AllowedPattern": "^https?://.*",
-			"ConstraintDescription": "Doit etre une URL valide commencant par http:// ou https://"
+			"ConstraintDescription": "Doit être un nom de bucket S3 valide"
 		},
-		"GitBranch": {
+		"S3KeyPrefix": {
 			"Type": "String",
-			"Description": "Branche du depôt Git a utiliser",
-			"Default": "main",
-			"AllowedPattern": "[a-zA-Z0-9_\\-\\/]+",
-			"ConstraintDescription": "Doit etre un nom de branche valide"
+			"Description": "Préfixe des objets dans le bucket S3",
+			"Default": "scripts/",
+			"AllowedPattern": "[a-zA-Z0-9-_./]*",
+			"ConstraintDescription": "Doit être un préfixe valide, peut contenir des lettres, chiffres, tirets, underscores et slashes"
 		},
 		"DNSPrefix": {
 			"Type": "String",
@@ -150,7 +149,7 @@
 		}
 	},
 	"Rules": {
-		"ValidateGitRepoURL": {
+		"ValidateS3BucketName": {
 			"Assertions": [
 				{
 					"Assert": {
@@ -158,14 +157,14 @@
 							{
 								"Fn::Equals": [
 									{
-										"Ref": "GitRepoURL"
+										"Ref": "S3BucketName"
 									},
 									""
 								]
 							}
 						]
 					},
-					"AssertDescription": "L'URL du depôt Git ne peut pas etre vide"
+					"AssertDescription": "Le nom du bucket S3 ne peut pas être vide"
 				}
 			]
 		}
@@ -550,13 +549,13 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation WWW\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-www.sh\n./scripts/install-www.sh ${ApiEndpoint} ${ApiPort} ${Domain} ${AWS::StackName} WWWInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-www.sh /tmp/install-www.sh\nchmod +x /tmp/install-www.sh\n# Exécuter le script d'installation WWW\n/tmp/install-www.sh ${ApiEndpoint} ${ApiPort} ${Domain} ${AWS::StackName} WWWInstance ${AWS::Region}",
 								{
-									"GitRepoURL": {
-										"Ref": "GitRepoURL"
+									"S3BucketName": {
+										"Ref": "S3BucketName"
 									},
-									"GitBranch": {
-										"Ref": "GitBranch"
+									"S3KeyPrefix": {
+										"Ref": "S3KeyPrefix"
 									},
 									"ApiEndpoint": {
 										"Fn::Sub": "api.${DNSPrefix}team1.gti778.ets.bimweb.net"
@@ -664,13 +663,13 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-api.sh\n./scripts/install-api.sh ${WebServerPort} ${Cryptoserver} ${CryptoserverPort} ${CryptoLic} ${DBHost} ${DBPort} ${DBUser} ${DBPass} ${AWS::StackName} APIInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-api.sh /tmp/install-api.sh\nchmod +x /tmp/install-api.sh\n# Exécuter le script d'installation API\n/tmp/install-api.sh ${WebServerPort} ${Cryptoserver} ${CryptoserverPort} ${CryptoLic} ${DBHost} ${DBPort} ${DBUser} ${DBPass} ${AWS::StackName} APIInstance ${AWS::Region}",
 								{
-									"GitRepoURL": {
-										"Ref": "GitRepoURL"
+									"S3BucketName": {
+										"Ref": "S3BucketName"
 									},
-									"GitBranch": {
-										"Ref": "GitBranch"
+									"S3KeyPrefix": {
+										"Ref": "S3KeyPrefix"
 									},
 									"WebServerPort": "80",
 									"Cryptoserver": {
@@ -701,9 +700,6 @@
 									},
 									"DBPass": {
 										"Ref": "DBPassword"
-},
-									"Domain": {
-										"Fn::Sub": "www.${DNSPrefix}team1.gti778.ets.bimweb.net"
 									}
 								}
 							]
@@ -740,7 +736,7 @@
 									"Value": {
 										"Ref": "AWS::StackName"
 									}
-								},  
+								},
 								{
 									"Key": "Environment",
 									"Value": {
@@ -798,13 +794,13 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-licence.sh\n./scripts/install-licence.sh ${LicPort} ${AWS::StackName} LicenseInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-licence.sh /tmp/install-licence.sh\nchmod +x /tmp/install-licence.sh\n# Exécuter le script d'installation licence\n/tmp/install-licence.sh ${LicPort} ${AWS::StackName} LicenseInstance ${AWS::Region}",
 								{
-									"GitRepoURL": {
-										"Ref": "GitRepoURL"
+									"S3BucketName": {
+										"Ref": "S3BucketName"
 									},
-									"GitBranch": {
-										"Ref": "GitBranch"
+									"S3KeyPrefix": {
+										"Ref": "S3KeyPrefix"
 									},
 									"LicPort": {
 										"Fn::If": [
@@ -906,13 +902,13 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-db.sh\n./scripts/install-db.sh ${RootPass} ${DBUser} ${DBPass} ${DBPort} ${AWS::StackName} DBInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-db.sh /tmp/install-db.sh\nchmod +x /tmp/install-db.sh\n# Exécuter le script d'installation base de données\n/tmp/install-db.sh ${RootPass} ${DBUser} ${DBPass} ${DBPort} ${AWS::StackName} DBInstance ${AWS::Region}",
 								{
-									"GitRepoURL": {
-										"Ref": "GitRepoURL"
+									"S3BucketName": {
+										"Ref": "S3BucketName"
 									},
-									"GitBranch": {
-										"Ref": "GitBranch"
+									"S3KeyPrefix": {
+										"Ref": "S3KeyPrefix"
 									},
 									"RootPass": {
 										"Ref": "DBRootPass"

@@ -107,7 +107,7 @@
         "AvailabilityZone2": {
             "Type": "AWS::EC2::AvailabilityZone::Name",
             "Description": "Seconde zone de disponibilite (utilisee uniquement pour l'environnement Production)",
-            "Default": "us-west-1a"
+            "Default": "us-east-1b"
         }
     },
     "Conditions": {
