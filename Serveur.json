@@ -1,0 +1,1215 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Deploiement des serveurs pour l'application Menu Graphique",
+	"Metadata": {
+		"AWS::CloudFormation::Interface": {
+			"ParameterGroups": [
+				{
+					"Label": {
+						"default": "Configuration Generale"
+					},
+					"Parameters": [
+						"NetworkStackName",
+						"SSHKeyName",
+						"EnvironmentType"
+					]
+				},
+				{
+					"Label": {
+						"default": "Configuration Installation"
+					},
+					"Parameters": [
+						"GitRepoURL",
+						"GitBranch",
+						"DNSPrefix"
+					]
+				},
+				{
+					"Label": {
+						"default": "Configuration Base de Donnees"
+					},
+					"Parameters": [
+						"DBUsername",
+						"DBPassword"
+					]
+				},
+				{
+					"Label": {
+						"default": "Configuration Licence"
+					},
+					"Parameters": [
+						"MenuGraphiqueLicense"
+					]
+				}
+			],
+			"ParameterLabels": {
+				"NetworkStackName": {
+					"default": "Nom du Stack Reseau"
+				},
+				"SSHKeyName": {
+					"default": "Nom de la Cle SSH"
+				},
+				"EnvironmentType": {
+					"default": "Type d'environnement"
+				},
+				"GitRepoURL": {
+					"default": "URL du depôt Git"
+				},
+				"GitBranch": {
+					"default": "Branche Git"
+				},
+				"DNSPrefix": {
+					"default": "Prefixe DNS"
+				},
+				"DBUsername": {
+					"default": "Nom d'utilisateur BD"
+				},
+				"DBPassword": {
+					"default": "Mot de passe BD"
+				},
+				"MenuGraphiqueLicense": {
+					"default": "Licence Menu Graphique"
+				}
+			}
+		}
+	},
+	"Parameters": {
+		"NetworkStackName": {
+			"Type": "String",
+			"Description": "Nom du stack reseau deja deploye",
+			"MinLength": "1"
+		},
+		"SSHKeyName": {
+			"Type": "AWS::EC2::KeyPair::KeyName",
+			"Description": "Nom de la paire de cles SSH pour les connexions aux instances"
+		},
+		"EnvironmentType": {
+			"Type": "String",
+			"Description": "Type d'environnement (Prod/Test)",
+			"Default": "Test",
+			"AllowedValues": [
+				"Prod",
+				"Test"
+			],
+			"ConstraintDescription": "Doit etre 'Prod' ou 'Test'"
+		},
+		"GitRepoURL": {
+			"Type": "String",
+			"Description": "URL du depôt Git contenant les scripts d'installation",
+			"MinLength": "3",
+			"AllowedPattern": "^https?://.*",
+			"ConstraintDescription": "Doit etre une URL valide commencant par http:// ou https://"
+		},
+		"GitBranch": {
+			"Type": "String",
+			"Description": "Branche du depôt Git a utiliser",
+			"Default": "main",
+			"AllowedPattern": "[a-zA-Z0-9_\\-\\/]+",
+			"ConstraintDescription": "Doit etre un nom de branche valide"
+		},
+		"DNSPrefix": {
+			"Type": "String",
+			"Description": "Prefixe DNS pour les sous-domaines (ex: 'production.')",
+			"Default": "",
+			"AllowedPattern": "^([a-z]*\\.)?$",
+			"ConstraintDescription": "Doit etre vide ou contenir des lettres minuscules suivies d'un point"
+		},
+		"DBUsername": {
+			"Type": "String",
+			"Description": "Nom d'utilisateur pour la base de donnees",
+			"MinLength": "3",
+			"AllowedPattern": "[a-zA-Z0-9]+",
+			"ConstraintDescription": "Doit etre alphanumerique et contenir au moins 3 caracteres"
+		},
+		"DBPassword": {
+			"Type": "String",
+			"NoEcho": true,
+			"Description": "Mot de passe pour la base de donnees",
+			"MinLength": "8",
+			"AllowedPattern": "(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).+",
+			"ConstraintDescription": "Doit contenir au moins 8 caracteres, dont une minuscule, une majuscule et un symbole special"
+		},
+		"MenuGraphiqueLicense": {
+			"Type": "String",
+			"NoEcho": true,
+			"Description": "Cle de licence pour Menu Graphique",
+			"MinLength": "129",
+			"MaxLength": "129",
+			"ConstraintDescription": "Doit etre une cle de licence valide de 129 caracteres"
+		},
+		"LatestAmiId": {
+			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+			"Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+			"Description": "AMI Amazon Linux 2023 la plus récente"
+		},
+		"DBRootPass": {
+			"Type": "String",
+			"Default": "superpwd123",
+			"NoEcho": true,
+			"Description": "Mot de passe pour la base de donnees"
+		}
+	},
+	"Rules": {
+		"ValidateGitRepoURL": {
+			"Assertions": [
+				{
+					"Assert": {
+						"Fn::Not": [
+							{
+								"Fn::Equals": [
+									{
+										"Ref": "GitRepoURL"
+									},
+									""
+								]
+							}
+						]
+					},
+					"AssertDescription": "L'URL du depôt Git ne peut pas etre vide"
+				}
+			]
+		}
+	},
+	"Resources": {
+		"WWWSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Groupe de securite pour les serveurs Web",
+				"VpcId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-VpcId"
+					}
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 80,
+						"ToPort": 80,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "Acces HTTP public"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 443,
+						"ToPort": 443,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "Acces HTTPS public"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 22,
+						"ToPort": 22,
+						"SourceSecurityGroupId": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-JumpBoxSG"
+							}
+						},
+						"Description": "Acces SSH depuis JumpBox"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${NetworkStackName}-WWW-SG"
+						}
+					},
+					{
+						"Key": "Stack",
+						"Value": {
+							"Ref": "AWS::StackName"
+						}
+					},
+					{
+						"Key": "Environment",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-EnvType"
+							}
+						}
+					},
+					{
+						"Key": "Project",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-ProjectName"
+							}
+						}
+					},
+					{
+						"Key": "Layer",
+						"Value": "www"
+					}
+				]
+			}
+		},
+		"APISecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Groupe de securite pour les serveurs API",
+				"VpcId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-VpcId"
+					}
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								8080,
+								80
+							]
+						},
+						"ToPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								8080,
+								80
+							]
+						},
+						"SourceSecurityGroupId": {
+							"Ref": "WWWSecurityGroup"
+						},
+						"Description": "Acces HTTP depuis WWW"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 443,
+						"ToPort": 443,
+						"SourceSecurityGroupId": {
+							"Ref": "WWWSecurityGroup"
+						},
+						"Description": "Acces HTTPS depuis WWW"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 22,
+						"ToPort": 22,
+						"SourceSecurityGroupId": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-JumpBoxSG"
+							}
+						},
+						"Description": "Acces SSH depuis JumpBox"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${NetworkStackName}-API-SG"
+						}
+					},
+					{
+						"Key": "Stack",
+						"Value": {
+							"Ref": "AWS::StackName"
+						}
+					},
+					{
+						"Key": "Environment",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-EnvType"
+							}
+						}
+					},
+					{
+						"Key": "Project",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-ProjectName"
+							}
+						}
+					},
+					{
+						"Key": "Layer",
+						"Value": "api"
+					}
+				]
+			}
+		},
+		"LicenseSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Groupe de securite pour les serveurs de Licence",
+				"VpcId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-VpcId"
+					}
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								8080,
+								9090
+							]
+						},
+						"ToPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								8080,
+								9090
+							]
+						},
+						"SourceSecurityGroupId": {
+							"Ref": "APISecurityGroup"
+						},
+						"Description": "Acces HTTP depuis API"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 443,
+						"ToPort": 443,
+						"SourceSecurityGroupId": {
+							"Ref": "APISecurityGroup"
+						},
+						"Description": "Acces HTTPS depuis API"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 22,
+						"ToPort": 22,
+						"SourceSecurityGroupId": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-JumpBoxSG"
+							}
+						},
+						"Description": "Acces SSH depuis JumpBox"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${NetworkStackName}-License-SG"
+						}
+					},
+					{
+						"Key": "Stack",
+						"Value": {
+							"Ref": "AWS::StackName"
+						}
+					},
+					{
+						"Key": "Environment",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-EnvType"
+							}
+						}
+					},
+					{
+						"Key": "Project",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-ProjectName"
+							}
+						}
+					},
+					{
+						"Key": "Layer",
+						"Value": "licence"
+					}
+				]
+			}
+		},
+		"DBSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Groupe de securite pour les serveurs de Base de Donnees",
+				"VpcId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-VpcId"
+					}
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": {
+								"Fn::If": [
+									"IsProdEnvironment",
+									3306,
+									3360
+								]
+						},
+						"ToPort": {
+								"Fn::If": [
+									"IsProdEnvironment",
+									3306,
+									3360
+								]
+						},
+						"SourceSecurityGroupId": {
+							"Ref": "APISecurityGroup"
+						},
+						"Description": "Acces MySQL depuis API"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								3306,
+								3360
+							]
+						},
+						"ToPort": {
+							"Fn::If": [
+								"IsProdEnvironment",
+								3306,
+								3360
+							]
+						},
+						"SourceSecurityGroupId": {
+							"Ref": "LicenseSecurityGroup"
+						},
+						"Description": "Acces MySQL depuis License"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 22,
+						"ToPort": 22,
+						"SourceSecurityGroupId": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-JumpBoxSG"
+							}
+						},
+						"Description": "Acces SSH depuis JumpBox"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${NetworkStackName}-DB-SG"
+						}
+					},
+					{
+						"Key": "Stack",
+						"Value": {
+							"Ref": "AWS::StackName"
+						}
+					},
+					{
+						"Key": "Environment",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-EnvType"
+							}
+						}
+					},
+					{
+						"Key": "Project",
+						"Value": {
+							"Fn::ImportValue": {
+								"Fn::Sub": "${NetworkStackName}-ProjectName"
+							}
+						}
+					},
+					{
+						"Key": "Layer",
+						"Value": "bd"
+					}
+				]
+			}
+		},
+		"WWWLaunchTemplate": {
+			"Type": "AWS::EC2::LaunchTemplate",
+			"Properties": {
+				"LaunchTemplateName": {
+					"Fn::Sub": "${AWS::StackName}-WWWTemplate"
+				},
+				"LaunchTemplateData": {
+					"ImageId": {
+						"Ref": "LatestAmiId"
+					},
+					"InstanceType": {
+						"Fn::If": [
+							"IsProdEnvironment",
+							"t2.small",
+							"t2.small"
+						]
+					},
+					"KeyName": {
+						"Ref": "SSHKeyName"
+					},
+					"IamInstanceProfile": {
+						"Name": "LabInstanceProfile"
+					},
+					"SecurityGroupIds": [
+						{
+							"Ref": "WWWSecurityGroup"
+						}
+					],
+					"UserData": {
+						"Fn::Base64": {
+							"Fn::Sub": [
+								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation WWW\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-www.sh\n./scripts/install-www.sh ${ApiEndpoint} ${ApiPort} ${Domain} ${AWS::StackName} WWWInstance ${AWS::Region}",
+								{
+									"GitRepoURL": {
+										"Ref": "GitRepoURL"
+									},
+									"GitBranch": {
+										"Ref": "GitBranch"
+									},
+									"ApiEndpoint": {
+										"Fn::Sub": "api.${DNSPrefix}team1.gti778.ets.bimweb.net"
+									},
+									"ApiPort": {
+										"Fn::If": [
+											"IsProdEnvironment",
+											"8080",
+											"80"
+										]
+									},
+									"Domain": {
+										"Fn::Sub": "www.${DNSPrefix}team1.gti778.ets.bimweb.net"
+									}
+								}
+							]
+						}
+					},
+					"BlockDeviceMappings": [
+						{
+							"DeviceName": "/dev/xvda",
+							"Ebs": {
+								"VolumeSize": {
+									"Fn::If": [
+										"IsProdEnvironment",
+										"8",
+										"8"
+									]
+								},
+								"VolumeType": "gp2",
+								"DeleteOnTermination": true
+							}
+						}
+					],
+					"TagSpecifications": [
+						{
+							"ResourceType": "instance",
+							"Tags": [
+								{
+									"Key": "Name",
+									"Value": {
+										"Fn::Sub": "${NetworkStackName}-WWW"
+									}
+								},
+								{
+									"Key": "Stack",
+									"Value": {
+										"Ref": "AWS::StackName"
+									}
+								},
+								{
+									"Key": "Environment",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-EnvType"
+										}
+									}
+								},
+								{
+									"Key": "Project",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-ProjectName"
+										}
+									}
+								},
+								{
+									"Key": "Layer",
+									"Value": "www"
+								}
+							]
+						}
+					]
+				}
+			}
+		},
+		"APILaunchTemplate": {
+			"Type": "AWS::EC2::LaunchTemplate",
+			"Properties": {
+				"LaunchTemplateName": {
+					"Fn::Sub": "${AWS::StackName}-APITemplate"
+				},
+				"LaunchTemplateData": {
+					"ImageId": {
+						"Ref": "LatestAmiId"
+					},
+					"InstanceType": {
+						"Fn::If": [
+							"IsProdEnvironment",
+							"t2.large",
+							"t2.small"
+						]
+					},
+					"KeyName": {
+						"Ref": "SSHKeyName"
+					},
+					"IamInstanceProfile": {
+						"Name": "LabInstanceProfile"
+					},
+					"SecurityGroupIds": [
+						{
+							"Ref": "APISecurityGroup"
+						}
+					],
+					"UserData": {
+						"Fn::Base64": {
+							"Fn::Sub": [
+								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-api.sh\n./scripts/install-api.sh ${WebServerPort} ${Cryptoserver} ${CryptoserverPort} ${CryptoLic} ${DBHost} ${DBPort} ${DBUser} ${DBPass} ${AWS::StackName} APIInstance ${AWS::Region}",
+								{
+									"GitRepoURL": {
+										"Ref": "GitRepoURL"
+									},
+									"GitBranch": {
+										"Ref": "GitBranch"
+									},
+									"WebServerPort": "80",
+									"Cryptoserver": {
+										"Fn::Sub": "licence.${DNSPrefix}team1.gti778.ets.bimweb.net"
+									},
+									"CryptoserverPort": {
+										"Fn::If": [
+											"IsProdEnvironment",
+											"8080",
+											"9090"
+										]
+									},
+									"CryptoLic": {
+										"Ref": "MenuGraphiqueLicense"
+									},
+									"DBHost": {
+										"Fn::Sub": "bd.${DNSPrefix}team1.gti778.ets.bimweb.net"
+									},
+									"DBPort": {
+										"Fn::If": [
+											"IsProdEnvironment",
+											"3306",
+											"3360"
+										]
+									},
+									"DBUser": {
+										"Ref": "DBUsername"
+									},
+									"DBPass": {
+										"Ref": "DBPassword"
+},
+									"Domain": {
+										"Fn::Sub": "www.${DNSPrefix}team1.gti778.ets.bimweb.net"
+									}
+								}
+							]
+						}
+					},
+					"BlockDeviceMappings": [
+						{
+							"DeviceName": "/dev/xvda",
+							"Ebs": {
+								"VolumeSize": {
+									"Fn::If": [
+										"IsProdEnvironment",
+										"8",
+										"8"
+									]
+								},
+								"VolumeType": "gp2",
+								"DeleteOnTermination": true
+							}
+						}
+					],
+					"TagSpecifications": [
+						{
+							"ResourceType": "instance",
+							"Tags": [
+								{
+									"Key": "Name",
+									"Value": {
+										"Fn::Sub": "${NetworkStackName}-API"
+									}
+								},
+								{
+									"Key": "Stack",
+									"Value": {
+										"Ref": "AWS::StackName"
+									}
+								},  
+								{
+									"Key": "Environment",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-EnvType"
+										}
+									}
+								},
+								{
+									"Key": "Project",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-ProjectName"
+										}
+									}
+								},
+								{
+									"Key": "Layer",
+									"Value": "api"
+								}
+							]
+						}
+					]
+				}
+			}
+		},
+		"LicenseLaunchTemplate": {
+			"Type": "AWS::EC2::LaunchTemplate",
+			"Properties": {
+				"LaunchTemplateName": {
+					"Fn::Sub": "${AWS::StackName}-LicenseTemplate"
+				},
+				"LaunchTemplateData": {
+					"ImageId": {
+						"Ref": "LatestAmiId"
+					},
+					"InstanceType": {
+						"Fn::If": [
+							"IsProdEnvironment",
+							"t2.micro",
+							"t2.small"
+						]
+					},
+					"KeyName": {
+						"Ref": "SSHKeyName"
+					},
+					"IamInstanceProfile": {
+						"Name": "LabInstanceProfile"
+					},
+					"SecurityGroupIds": [
+						{
+							"Ref": "LicenseSecurityGroup"
+						}
+					],
+					"UserData": {
+						"Fn::Base64": {
+							"Fn::Sub": [
+								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-licence.sh\n./scripts/install-licence.sh ${LicPort} ${AWS::StackName} LicenseInstance ${AWS::Region}",
+								{
+									"GitRepoURL": {
+										"Ref": "GitRepoURL"
+									},
+									"GitBranch": {
+										"Ref": "GitBranch"
+									},
+									"LicPort": {
+										"Fn::If": [
+											"IsProdEnvironment",
+											"8080",
+											"9090"
+										]
+									}
+								}
+							]
+						}
+					},
+					"BlockDeviceMappings": [
+						{
+							"DeviceName": "/dev/xvda",
+							"Ebs": {
+								"VolumeSize": {
+									"Fn::If": [
+										"IsProdEnvironment",
+										"8",
+										"8"
+									]
+								},
+								"VolumeType": "gp2",
+								"DeleteOnTermination": true
+							}
+						}
+					],
+					"TagSpecifications": [
+						{
+							"ResourceType": "instance",
+							"Tags": [
+								{
+									"Key": "Name",
+									"Value": {
+										"Fn::Sub": "${NetworkStackName}-License"
+									}
+								},
+								{
+									"Key": "Stack",
+									"Value": {
+										"Ref": "AWS::StackName"
+									}
+								},
+								{
+									"Key": "Environment",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-EnvType"
+										}
+									}
+								},
+								{
+									"Key": "Project",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-ProjectName"
+										}
+									}
+								},
+								{
+									"Key": "Layer",
+									"Value": "licence"
+								}
+							]
+						}
+					]
+				}
+			}
+		},
+		"DBLaunchTemplate": {
+			"Type": "AWS::EC2::LaunchTemplate",
+			"Properties": {
+				"LaunchTemplateName": {
+					"Fn::Sub": "${AWS::StackName}-DBTemplate"
+				},
+				"LaunchTemplateData": {
+					"ImageId": {
+						"Ref": "LatestAmiId"
+					},
+					"InstanceType": {
+						"Fn::If": [
+							"IsProdEnvironment",
+							"t2.xlarge",
+							"t2.medium"
+						]
+					},
+					"KeyName": {
+						"Ref": "SSHKeyName"
+					},
+					"IamInstanceProfile": {
+						"Name": "LabInstanceProfile"
+					},
+					"SecurityGroupIds": [
+						{
+							"Ref": "DBSecurityGroup"
+						}
+					],
+					"UserData": {
+						"Fn::Base64": {
+							"Fn::Sub": [
+								"#!/bin/bash\nyum update -y\nyum install -y git aws-cfn-bootstrap\n# Cloner le depôt Git et executer le script d'installation API\ngit clone ${GitRepoURL} /tmp/menu-graphique\ncd /tmp/menu-graphique\ngit checkout ${GitBranch}\nchmod +x ./scripts/install-db.sh\n./scripts/install-db.sh ${RootPass} ${DBUser} ${DBPass} ${DBPort} ${AWS::StackName} DBInstance ${AWS::Region}",
+								{
+									"GitRepoURL": {
+										"Ref": "GitRepoURL"
+									},
+									"GitBranch": {
+										"Ref": "GitBranch"
+									},
+									"RootPass": {
+										"Ref": "DBRootPass"
+									},
+									"DBUser": {
+										"Ref": "DBUsername"
+									},
+									"DBPass": {
+										"Ref": "DBPassword"
+									},
+									"DBPort": {
+										"Fn::If": [
+											"IsProdEnvironment",
+											"3306",
+											"3360"
+										]
+									}
+								}
+							]
+						}
+					},
+					"BlockDeviceMappings": [
+						{
+							"DeviceName": "/dev/xvda",
+							"Ebs": {
+								"VolumeSize": {
+									"Fn::If": [
+										"IsProdEnvironment",
+										"16",
+										"16"
+									]
+								},
+								"VolumeType": "gp2",
+								"DeleteOnTermination": true
+							}
+						}
+					],
+					"TagSpecifications": [
+						{
+							"ResourceType": "instance",
+							"Tags": [
+								{
+									"Key": "Name",
+									"Value": {
+										"Fn::Sub": "${NetworkStackName}-DB"
+									}
+								},
+								{
+									"Key": "Stack",
+									"Value": {
+										"Ref": "AWS::StackName"
+									}
+								},
+								{
+									"Key": "Environment",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-EnvType"
+										}
+									}
+								},
+								{
+									"Key": "Project",
+									"Value": {
+										"Fn::ImportValue": {
+											"Fn::Sub": "${NetworkStackName}-ProjectName"
+										}
+									}
+								},
+								{
+									"Key": "Layer",
+									"Value": "bd"
+								}
+							]
+						}
+					]
+				}
+			}
+		},
+		"WWWInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"LaunchTemplate": {
+					"LaunchTemplateId": {
+						"Ref": "WWWLaunchTemplate"
+					},
+					"Version": {
+						"Fn::GetAtt": [
+							"WWWLaunchTemplate",
+							"LatestVersionNumber"
+						]
+					}
+				},
+				"SubnetId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-PublicSubnet1Id"
+					}
+				}
+			},
+			"CreationPolicy": {
+				"ResourceSignal": {
+					"Timeout": "PT15M"
+				}
+			}
+		},
+		"APIInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"LaunchTemplate": {
+					"LaunchTemplateId": {
+						"Ref": "APILaunchTemplate"
+					},
+					"Version": {
+						"Fn::GetAtt": [
+							"APILaunchTemplate",
+							"LatestVersionNumber"
+						]
+					}
+				},
+				"SubnetId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-PublicSubnet1Id"
+					}
+				}
+			},
+			"CreationPolicy": {
+				"ResourceSignal": {
+					"Timeout": "PT15M"
+				}
+			}
+		},
+		"LicenseInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"LaunchTemplate": {
+					"LaunchTemplateId": {
+						"Ref": "LicenseLaunchTemplate"
+					},
+					"Version": {
+						"Fn::GetAtt": [
+							"LicenseLaunchTemplate",
+							"LatestVersionNumber"
+						]
+					}
+				},
+				"SubnetId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-PrivateSubnet1Id"
+					}
+				}
+			},
+			"CreationPolicy": {
+				"ResourceSignal": {
+					"Timeout": "PT15M"
+				}
+			}
+		},
+		"DBInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"LaunchTemplate": {
+					"LaunchTemplateId": {
+						"Ref": "DBLaunchTemplate"
+					},
+					"Version": {
+						"Fn::GetAtt": [
+							"DBLaunchTemplate",
+							"LatestVersionNumber"
+						]
+					}
+				},
+				"SubnetId": {
+					"Fn::ImportValue": {
+						"Fn::Sub": "${NetworkStackName}-PrivateSubnet1Id"
+					}
+				}
+			},
+			"CreationPolicy": {
+				"ResourceSignal": {
+					"Timeout": "PT15M"
+				}
+			}
+		}
+	},
+	"Conditions": {
+		"IsProdEnvironment": {
+			"Fn::Equals": [
+				{
+					"Ref": "EnvironmentType"
+				},
+				"Prod"
+			]
+		}
+	},
+	"Outputs": {
+		"WWWInstancePublicIP": {
+			"Description": "Adresse IP publique de l'instance Web",
+			"Value": {
+				"Fn::GetAtt": [
+					"WWWInstance",
+					"PublicIp"
+				]
+			}
+		},
+		"WWWInstancePrivateIP": {
+			"Description": "Adresse IP privee de l'instance Web",
+			"Value": {
+				"Fn::GetAtt": [
+					"WWWInstance",
+					"PrivateIp"
+				]
+			}
+		},
+		"APIInstancePublicIP": {
+			"Description": "Adresse IP publique de l'instance Web",
+			"Value": {
+				"Fn::GetAtt": [
+					"APIInstance",
+					"PublicIp"
+				]
+			}
+		},
+		"APIInstancePrivateIP": {
+			"Description": "Adresse IP privee de l'instance API",
+			"Value": {
+				"Fn::GetAtt": [
+					"APIInstance",
+					"PrivateIp"
+				]
+			}
+		},
+		"LicenseInstancePrivateIP": {
+			"Description": "Adresse IP privee de l'instance License",
+			"Value": {
+				"Fn::GetAtt": [
+					"LicenseInstance",
+					"PrivateIp"
+				]
+			}
+		},
+		"DBInstancePrivateIP": {
+			"Description": "Adresse IP privee de l'instance BD",
+			"Value": {
+				"Fn::GetAtt": [
+					"DBInstance",
+					"PrivateIp"
+				]
+			}
+		},
+		"WWWDomain": {
+			"Description": "Nom de domaine pour l'interface Web",
+			"Value": {
+				"Fn::Sub": "www.${DNSPrefix}team1.gti778.ets.bimweb.net"
+			}
+		},
+		"APIDomain": {
+			"Description": "Nom de domaine pour l'API",
+			"Value": {
+				"Fn::Sub": "api.${DNSPrefix}team1.gti778.ets.bimweb.net"
+			}
+		},
+		"LicenseDomain": {
+			"Description": "Nom de domaine pour le service de licence",
+			"Value": {
+				"Fn::Sub": "licence.${DNSPrefix}team1.gti778.ets.bimweb.net"
+			}
+		},
+		"BDHost": {
+			"Description": "Hôte de la base de donnees",
+			"Value": {
+				"Fn::GetAtt": [
+					"DBInstance",
+					"PrivateIp"
+				]
+			}
+		},
+		"BDDomain": {
+			"Description": "Nom de domaine pour la base de donnees",
+			"Value": {
+				"Fn::Sub": "bd.${DNSPrefix}team1.gti778.ets.bimweb.net"
+			}
+		},
+		"EnvironmentType": {
+			"Description": "Type d'environnement deploye",
+			"Value": {
+				"Fn::ImportValue": {
+					"Fn::Sub": "${NetworkStackName}-EnvType"
+				}
+			}
+		},
+		"ProjectName": {
+			"Description": "Nom du projet",
+			"Value": {
+				"Fn::ImportValue": {
+					"Fn::Sub": "${NetworkStackName}-ProjectName"
+				}
+			}
+		}
+	}
+}
