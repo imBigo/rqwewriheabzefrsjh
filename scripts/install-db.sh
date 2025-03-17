@@ -1,11 +1,6 @@
 #!/bin/bash
 # Modified install-bd.sh for Amazon Linux 2023
-# Usage: install-db.sh root_password user_password db_user db_port [stack_name resource_name region]
-
-# Récupération des paramètres CloudFormation (passés comme arguments supplémentaires)
-STACK_NAME=${5:-""}
-RESOURCE_NAME=${6:-""}
-REGION=${7:-"us-east-1"}
+# Usage: install-db.sh root_password user_password db_user db_port
 
 # Add verbose logging to debug
 exec > >(tee /var/log/db-install.log) 2>&1
@@ -26,9 +21,9 @@ echo "Using DB_PORT: $DB_PORT"
 echo "Updating system packages..."
 sudo yum update -y
 
-# Install MariaDB server and aws-cfn-bootstrap
-echo "Installing MariaDB server and aws-cfn-bootstrap..."
-sudo yum install -y mariadb105-server aws-cfn-bootstrap
+# Install MariaDB server
+echo "Installing MariaDB server..."
+sudo yum install -y mariadb105-server
 
 # Create config directories
 echo "Creating configuration..."
@@ -66,16 +61,8 @@ EOF
 echo "Checking MariaDB status..."
 if sudo systemctl status mariadb --no-pager; then
     echo "MariaDB installation complete at $(date)"
-    # Signaler le succès à CloudFormation si les paramètres sont fournis
-    if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]; then
-        /opt/aws/bin/cfn-signal -e 0 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-    fi
 else
     echo "Erreur: MariaDB n'a pas démarré correctement"
-    # Signaler l'échec à CloudFormation si les paramètres sont fournis
-    if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]; then
-        /opt/aws/bin/cfn-signal -e 1 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-    fi
     exit 1
 fi
 
@@ -84,9 +71,5 @@ if mysqladmin -u root -p"$ROOT_PASSWORD" ping; then
     echo "Database connection successful"
 else
     echo "Database ping failed"
-    # Signaler l'échec à CloudFormation si les paramètres sont fournis
-    if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]; then
-        /opt/aws/bin/cfn-signal -e 1 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-    fi
     exit 1
 fi

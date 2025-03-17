@@ -3,16 +3,11 @@
 #usage apiendp apiport domainnme
 set -eux  # Arrête l'exécution en cas d'erreur et affiche chaque commande exécutée
 
-# Récupération des paramètres CloudFormation (passés comme arguments supplémentaires)
-STACK_NAME=${4:-""}
-RESOURCE_NAME=${5:-""}
-REGION=${6:-"us-east-1"}
-
 # Mettre à jour les paquets du système
 sudo yum update -y
 
 # Installer les paquets nécessaires
-sudo yum install -y nginx git aws-cfn-bootstrap
+sudo yum install -y nginx git
 
 # Définir les variables
 DOMAIN_NAME=$3
@@ -26,19 +21,12 @@ rm -rf ind250-MenuGraphique
 git clone https://github.com/mathieu55/ind250-MenuGraphique.git
 if [ $? -ne 0 ]; then
     echo "Erreur : échec du clonage du dépôt GitHub"
-    # Signaler l'échec à CloudFormation si les paramètres sont fournis
-    if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]; then
-        /opt/aws/bin/cfn-signal -e 1 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-    fi
     exit 1
 fi
 
 if [ ! -d "$WEB_ROOT" ]; then
     sudo mkdir -p $WEB_ROOT
-    #sudo chown -R nginx:nginx /var/www/html
-    #sudo chmod -R 755 /var/www/html
 fi
-
 
 # Copier le site web dans le dossier web de NGINX
 sudo rm -rf $WEB_ROOT/*
@@ -68,10 +56,6 @@ EOF
 sudo nginx -t
 if [ $? -ne 0 ]; then
     echo "Erreur : configuration NGINX invalide"
-    # Signaler l'échec à CloudFormation si les paramètres sont fournis
-    if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]: then
-        /opt/aws/bin/cfn-signal -e 1 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-    fi
     exit 1
 fi
 
@@ -80,8 +64,3 @@ sudo systemctl enable nginx
 sudo systemctl restart nginx
 
 echo "Installation terminée avec succès"
-
-# Signaler le succès à CloudFormation si les paramètres sont fournis
-if [ -n "$STACK_NAME" ] && [ -n "$RESOURCE_NAME" ]; then
-    /opt/aws/bin/cfn-signal -e 0 --stack "$STACK_NAME" --resource "$RESOURCE_NAME" --region "$REGION"
-fi
