@@ -431,18 +431,18 @@
 					{
 						"IpProtocol": "tcp",
 						"FromPort": {
-								"Fn::If": [
-									"IsProdEnvironment",
-									3306,
-									3360
-								]
+							"Fn::If": [
+								"IsProdEnvironment",
+								3306,
+								3360
+							]
 						},
 						"ToPort": {
-								"Fn::If": [
-									"IsProdEnvironment",
-									3306,
-									3360
-								]
+							"Fn::If": [
+								"IsProdEnvironment",
+								3306,
+								3360
+							]
 						},
 						"SourceSecurityGroupId": {
 							"Ref": "APISecurityGroup"
@@ -549,7 +549,7 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-www.sh /tmp/install-www.sh\nchmod +x /tmp/install-www.sh\n# Exécuter le script d'installation WWW\n/tmp/install-www.sh ${ApiEndpoint} ${ApiPort} ${Domain} ${AWS::StackName} WWWInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-www.sh /tmp/install-www.sh\nchmod +x /tmp/install-www.sh\n# Exécuter le script d'installation WWW\n/tmp/install-www.sh ${ApiEndpoint} ${ApiPort} ${Domain}\n# Signaler manuellement à CloudFormation que le déploiement est terminé\n/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WWWInstance --region ${AWS::Region}",
 								{
 									"S3BucketName": {
 										"Ref": "S3BucketName"
@@ -663,7 +663,7 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-api.sh /tmp/install-api.sh\nchmod +x /tmp/install-api.sh\n# Exécuter le script d'installation API\n/tmp/install-api.sh ${WebServerPort} ${Cryptoserver} ${CryptoserverPort} ${CryptoLic} ${DBHost} ${DBPort} ${DBUser} ${DBPass} ${AWS::StackName} APIInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-api.sh /tmp/install-api.sh\nchmod +x /tmp/install-api.sh\n# Exécuter le script d'installation API\n/tmp/install-api.sh ${WebServerPort} ${Cryptoserver} ${CryptoserverPort} ${CryptoLic} ${DBHost} ${DBPort} ${DBUser} ${DBPass}\n# Signaler manuellement à CloudFormation que le déploiement est terminé\n/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource APIInstance --region ${AWS::Region}",
 								{
 									"S3BucketName": {
 										"Ref": "S3BucketName"
@@ -794,7 +794,7 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-licence.sh /tmp/install-licence.sh\nchmod +x /tmp/install-licence.sh\n# Exécuter le script d'installation licence\n/tmp/install-licence.sh ${LicPort} ${AWS::StackName} LicenseInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-licence.sh /tmp/install-licence.sh\nchmod +x /tmp/install-licence.sh\n# Exécuter le script d'installation licence\n/tmp/install-licence.sh ${LicPort}\n# Signaler manuellement à CloudFormation que le déploiement est terminé\n/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource LicenseInstance --region ${AWS::Region}",
 								{
 									"S3BucketName": {
 										"Ref": "S3BucketName"
@@ -902,7 +902,7 @@
 					"UserData": {
 						"Fn::Base64": {
 							"Fn::Sub": [
-								"#!/bin/bash\nyum update -y\nyum install -y aws-cfn-bootstrap\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-db.sh /tmp/install-db.sh\nchmod +x /tmp/install-db.sh\n# Exécuter le script d'installation base de données\n/tmp/install-db.sh ${RootPass} ${DBUser} ${DBPass} ${DBPort} ${AWS::StackName} DBInstance ${AWS::Region}",
+								"#!/bin/bash\nyum update -y\n# Télécharger les scripts depuis S3\naws s3 cp s3://${S3BucketName}/${S3KeyPrefix}install-db.sh /tmp/install-db.sh\nchmod +x /tmp/install-db.sh\n# Exécuter le script d'installation base de données\n/tmp/install-db.sh ${RootPass} ${DBUser} ${DBPass} ${DBPort}\n# Signaler manuellement à CloudFormation que le déploiement est terminé\n/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource DBInstance --region ${AWS::Region}",
 								{
 									"S3BucketName": {
 										"Ref": "S3BucketName"
