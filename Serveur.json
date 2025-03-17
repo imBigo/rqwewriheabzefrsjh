@@ -268,9 +268,7 @@
 								80
 							]
 						},
-						"SourceSecurityGroupId": {
-							"Ref": "WWWSecurityGroup"
-						},
+						"CidrIp": "0.0.0.0/0",
 						"Description": "Acces HTTP depuis WWW"
 					},
 					{
